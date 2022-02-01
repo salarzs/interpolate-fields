@@ -7,9 +7,9 @@
     !
     ! input domain parameters
     !
-    real(rp), parameter,       dimension(3) :: l     = [1.5_rp,3._rp,1._rp]
-    integer , parameter,       dimension(3) :: ni    = [ 64, 64, 64]
-    integer , parameter,       dimension(3) :: no    = [128,128,128]
+    real(rp), parameter,       dimension(3) :: l     = [0.0016_rp,0.0016_rp,0.0016_rp]
+    integer , parameter,       dimension(3) :: ni    = [64,64,64]      !global?
+    integer , parameter,       dimension(3) :: no    = [256,256,256]   !global? 
     real(rp), parameter,       dimension(3) :: dlo   = l(:)/no(:)
     real(rp), parameter,       dimension(3) :: dli   = l(:)/ni(:)
     !
@@ -33,13 +33,43 @@
     real(rp)        , parameter, dimension(0:1,3) ::  bcpre = &
       reshape([0._rp,0._rp,0._rp,0._rp,0._rp,0._rp],shape(bcpre))
     !
-    ! default BC, in case it is needed for another field; commented for now:
-    !!character(len=1), parameter, dimension(0:1,3) :: cbc = cbcpre
-    !!real(rp)        , parameter, dimension(0:1,3) :: bc  =  bcpre
-    !
+    character(len=1), parameter, dimension(0:1,3) ::  cbcvof = &
+      reshape(['P','P',        & ! vof in x lower,upper bound
+               'P','P',        & ! vof in y lowerr,upper bound
+               'P','P'],      & ! vof in z lowerr,upper bound
+                shape(cbcvof))
+    real(rp)         , parameter, dimension(0:1,3) ::   bcvof = &
+      reshape([ 0._rp,0._rp,   & ! vof in x lowerr,upper bound
+                0._rp,0._rp,   & ! vof in y lowerr,upper bound
+                0._rp,0._rp],  & ! vof in z lowerr,upper bound
+                shape(bcvof))    
+  
+    character(len=1), parameter, dimension(0:1,3) ::  cbctmp = &
+      reshape(['P','P',        & ! temperature in x lowerr,upper bound
+               'P','P',        & ! temperature in y lowerr,upper bound
+               'P','P'],       & ! temperature in z lowerr,upper bound
+                shape(cbctmp))
+    real(rp)         , parameter, dimension(0:1,3) ::   bctmp = &
+      reshape([ 1._rp,1._rp,   & ! temperature in x lower,upper bound
+                1._rp,1._rp,   & ! temperature in y lower,upper bound
+                1._rp,1._rp],  & ! temperature in z lower,upper bound
+                shape(bctmp))
+    character(len=1), parameter, dimension(0:1,3) ::  cbcsca = &
+      reshape(['P','P',   & ! vapor mass in x lower,upper bound
+               'P','P',   & ! vapor mass in y lower,upper bound
+               'P','P'],  & ! vapor mass in z lower,upper bound
+                shape(cbcsca))
+    real(rp), parameter :: sb = 0._rp
+    real(rp), parameter, dimension(0:1,3)         ::   bcsca = &
+      sb*reshape([ 1._rp,1._rp,   & ! vapor mass in x lower,upper bound
+                   1._rp,1._rp,   & ! vapor mass in y lower,upper bound
+                   1._rp,1._rp],  & ! vapor mass in z lower,upper bound
+                shape(bcsca))
+
+
     ! file names
     !
-    character(len=*), parameter             :: input_file  = 'data/fld_i.bin', &
+    character(len=*), parameter             :: input_file  = 'data/fld_fir.bin', &
                                                output_file = 'data/fld_o.bin'
     !
     ! local problem sizes
@@ -57,14 +87,21 @@
     !
     ! computational variables
     !
-    real(rp), allocatable, dimension(:,:,:) :: ui,vi,wi,pi
-    real(rp), allocatable, dimension(:,:,:) :: uo,vo,wo,po
+    real(rp), allocatable, dimension(:,:,:) :: ui,vi,wi,pi,vofi,ugi,vgi,wgi,tmpi,scai
+    real(rp), allocatable, dimension(:,:,:) :: uo,vo,wo,po,vofo,ugo,vgo,wgo,tmpo,scao
     real(rp)                                :: time
     integer                                 :: istep
+    real(rp)                                :: dt,pth,dpthdt
+     
     !
     ! other variables
     !
     integer :: idir
+    time = 1._rp
+    istep = 0._rp
+    dt   = 0._rp
+    pth  = 0._rp
+    dpthdt = 0._rp
     !
     ! initialize MPI
     !
@@ -88,15 +125,26 @@
     !
     ! allocate input and output arrays
     !
-    allocate(ui(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
-             vi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
-             wi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
-             pi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
-             uo(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1), &
-             vo(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1), &
-             wo(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1), &
-             po(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1))
-    !
+    allocate(ui(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1)  , &
+             vi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1)  , &
+             wi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1)  , &
+             pi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1)  , &
+             vofi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
+             ugi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1) , &
+             vgi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1) , &
+             wgi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1) , &
+             tmpi(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
+             scai(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
+             uo(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1)  , &
+             vo(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1)  , &
+             wo(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1)  , &
+             po(0:nno(1)+1,0:nno(2)+1,0:nno(3)+1) , &
+             vofo(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
+             ugo(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1) , &
+             vgo(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1) , &
+             wgo(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1) , &
+             tmpo(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
+             scao(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1))
     ! determine neighbors
     !
     call MPI_CART_SHIFT(comm_cart,0,1,nb(0,1),nb(1,1),ierr)
@@ -113,7 +161,8 @@
     !
     ! read input data
     !
-    call load('r',input_file,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,time,istep)
+    call load('r',input_file,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,dt,pth,dpthdt)
     if(myid.eq.0) print*, 'Loaded field at time = ', time, 'step = ',istep,'.'
     !
     ! impose boundary conditions
@@ -123,6 +172,13 @@
       call updthalo(1,halo(idir),nb(:,idir),idir,vi)
       call updthalo(1,halo(idir),nb(:,idir),idir,wi)
       call updthalo(1,halo(idir),nb(:,idir),idir,pi)
+      call updthalo(1,halo(idir),nb(:,idir),idir,vofi)
+      call updthalo(1,halo(idir),nb(:,idir),idir,ugi)
+      call updthalo(1,halo(idir),nb(:,idir),idir,vgi)
+      call updthalo(1,halo(idir),nb(:,idir),idir,wgi)
+      call updthalo(1,halo(idir),nb(:,idir),idir,tmpi)
+      call updthalo(1,halo(idir),nb(:,idir),idir,scai)
+
     end do
     !
     if(is_bound(0,1)) then
@@ -130,36 +186,85 @@
       call set_bc(cbcvel(0,1,2),0,1,1,.true. ,bcvel(0,1,2),dli(1),vi)
       call set_bc(cbcvel(0,1,3),0,1,1,.true. ,bcvel(0,1,3),dli(1),wi)
       call set_bc(cbcpre(0,1  ),0,1,1,.true. ,bcpre(0,1  ),dli(1),pi)
-    end if
+      call set_bc(cbcvel(0,1,1),0,1,1,.false.,bcvel(0,1,1),dli(1),ugi)      !the same way as velocity field
+      call set_bc(cbcvel(0,1,2),0,1,1,.true. ,bcvel(0,1,2),dli(1),vgi)
+      call set_bc(cbcvel(0,1,3),0,1,1,.true. ,bcvel(0,1,3),dli(1),wgi)
+      call set_bc(cbcvof(0,1  ),0,1,1,.true. ,bcvof(0,1  ),dli(1),vofi)     !the same as pressure 
+      call set_bc(cbctmp(0,1  ),0,1,1,.true. ,bctmp(0,1  ),dli(1),tmpi)     !the same as pressure
+      call set_bc(cbcsca(0,1  ),0,1,1,.true. ,bcsca(0,1  ),dli(1),scai)     !the same as pressure 
+
+ end if
     if(is_bound(1,1)) then
-      call set_bc(cbcvel(1,1,1),1,1,1,.false.,bcvel(1,1,1),dli(1),ui)
+      call set_bc(cbcvel(1,1,1),1,1,1,.false.,bcvel(1,1,1),dli(1),ui)        !check true and falses
       call set_bc(cbcvel(1,1,2),1,1,1,.true. ,bcvel(1,1,2),dli(1),vi)
       call set_bc(cbcvel(1,1,3),1,1,1,.true. ,bcvel(1,1,3),dli(1),wi)
       call set_bc(cbcpre(1,1  ),1,1,1,.true. ,bcpre(1,1  ),dli(1),pi)
-    end if
+      call set_bc(cbcvel(1,1,1),1,1,1,.false.,bcvel(1,1,1),dli(1),ugi)
+      call set_bc(cbcvel(1,1,2),1,1,1,.true. ,bcvel(1,1,2),dli(1),vgi)
+      call set_bc(cbcvel(1,1,3),1,1,1,.true. ,bcvel(1,1,3),dli(1),wgi)
+      call set_bc(cbcvof(1,1  ),1,1,1,.true. ,bcvof(1,1  ),dli(1),vofi)
+      call set_bc(cbctmp(1,1  ),1,1,1,.true. ,bctmp(1,1  ),dli(1),tmpi)
+      call set_bc(cbcsca(1,1  ),1,1,1,.true. ,bcsca(1,1  ),dli(1),scai)
+
+
+
+
+   end if
     if(is_bound(0,2)) then
       call set_bc(cbcvel(0,2,1),0,2,1,.true. ,bcvel(0,2,1),dli(2),ui)
       call set_bc(cbcvel(0,2,2),0,2,1,.false.,bcvel(0,2,2),dli(2),vi)
       call set_bc(cbcvel(0,2,3),0,2,1,.true. ,bcvel(0,2,3),dli(2),wi)
       call set_bc(cbcpre(0,2  ),0,2,1,.true. ,bcpre(0,2  ),dli(2),pi)
-     end if
+      call set_bc(cbcvel(0,2,1),0,2,1,.true. ,bcvel(0,2,1),dli(2),ugi)
+      call set_bc(cbcvel(0,2,2),0,2,1,.false.,bcvel(0,2,2),dli(2),vgi)
+      call set_bc(cbcvel(0,2,3),0,2,1,.true. ,bcvel(0,2,3),dli(2),wgi)
+      call set_bc(cbcvof(0,2  ),0,2,1,.true. ,bcvof(0,2  ),dli(2),vofi)
+      call set_bc(cbctmp(0,2  ),0,2,1,.true. ,bctmp(0,2  ),dli(2),tmpi)
+      call set_bc(cbcsca(0,2  ),0,2,1,.true. ,bcsca(0,2  ),dli(2),scai)
+
+
+   end if
     if(is_bound(1,2)) then
       call set_bc(cbcvel(1,2,1),1,2,1,.true. ,bcvel(1,2,1),dli(2),ui)
       call set_bc(cbcvel(1,2,2),1,2,1,.false.,bcvel(1,2,2),dli(2),vi)
       call set_bc(cbcvel(1,2,3),1,2,1,.true. ,bcvel(1,2,3),dli(2),wi)
       call set_bc(cbcpre(1,2  ),1,2,1,.true. ,bcpre(1,2  ),dli(2),pi)
+      call set_bc(cbcvel(1,2,1),1,2,1,.true. ,bcvel(1,2,1),dli(2),ugi)
+      call set_bc(cbcvel(1,2,2),1,2,1,.false.,bcvel(1,2,2),dli(2),vgi)
+      call set_bc(cbcvel(1,2,3),1,2,1,.true. ,bcvel(1,2,3),dli(2),wgi)
+      call set_bc(cbcvof(1,2  ),1,2,1,.true. ,bcvof(1,2  ),dli(2),vofi)
+      call set_bc(cbctmp(1,2  ),1,2,1,.true. ,bctmp(1,2  ),dli(2),tmpi)
+      call set_bc(cbcsca(1,2  ),1,2,1,.true. ,bcsca(1,2  ),dli(2),scai)
+
+
     end if
     if(is_bound(0,3)) then
       call set_bc(cbcvel(0,3,1),0,3,1,.true. ,bcvel(0,3,1),dli(3),ui)
       call set_bc(cbcvel(0,3,2),0,3,1,.true. ,bcvel(0,3,2),dli(3),vi)
       call set_bc(cbcvel(0,3,3),0,3,1,.false.,bcvel(0,3,3),dli(3),wi)
       call set_bc(cbcpre(0,3  ),0,3,1,.true. ,bcpre(0,3  ),dli(3),pi)
+      call set_bc(cbcvel(0,3,1),0,3,1,.true. ,bcvel(0,3,1),dli(3),ugi)
+      call set_bc(cbcvel(0,3,2),0,3,1,.true. ,bcvel(0,3,2),dli(3),vgi)
+      call set_bc(cbcvel(0,3,3),0,3,1,.false.,bcvel(0,3,3),dli(3),wgi)
+      call set_bc(cbcvof(0,3  ),0,3,1,.true. ,bcvof(0,3  ),dli(3),vofi)
+      call set_bc(cbctmp(0,3  ),0,3,1,.true. ,bctmp(0,3  ),dli(3),tmpi)
+      call set_bc(cbcsca(0,3  ),0,3,1,.true. ,bcsca(0,3  ),dli(3),scai)
+
     end if
     if(is_bound(1,3)) then
       call set_bc(cbcvel(1,3,1),1,3,1,.true. ,bcvel(1,3,1),dli(3),ui)
       call set_bc(cbcvel(1,3,2),1,3,1,.true. ,bcvel(1,3,2),dli(3),vi)
       call set_bc(cbcvel(1,3,3),1,3,1,.false.,bcvel(1,3,3),dli(3),wi)
       call set_bc(cbcpre(1,3  ),1,3,1,.true. ,bcpre(1,3  ),dli(3),pi)
+      call set_bc(cbcvel(1,3,1),1,3,1,.true. ,bcvel(1,3,1),dli(3),ugi)
+      call set_bc(cbcvel(1,3,2),1,3,1,.true. ,bcvel(1,3,2),dli(3),vgi)
+      call set_bc(cbcvel(1,3,3),1,3,1,.false.,bcvel(1,3,3),dli(3),wgi)
+      call set_bc(cbcvof(1,3  ),1,3,1,.true. ,bcvof(1,3  ),dli(3),vofi)
+      call set_bc(cbctmp(1,3  ),1,3,1,.true. ,bctmp(1,3  ),dli(3),tmpi)
+      call set_bc(cbcsca(1,3  ),1,3,1,.true. ,bcsca(1,3  ),dli(3),scai)
+
+
+
     end if
     !
     ! interpolate field from grid 'i' to mesh 'o'
@@ -168,8 +273,18 @@
     call interp_fld([.false.,.true. ,.false.],lo_i,lo_o,hi_o,dli,dlo,vi,vo)
     call interp_fld([.false.,.false.,.true. ],lo_i,lo_o,hi_o,dli,dlo,wi,wo)
     call interp_fld([.false.,.false.,.false.],lo_i,lo_o,hi_o,dli,dlo,pi,po)
+    call interp_fld([.true. ,.false.,.false.],lo_i,lo_o,hi_o,dli,dlo,ugi,ugo)
+    call interp_fld([.false.,.true. ,.false.],lo_i,lo_o,hi_o,dli,dlo,vgi,vgo)
+    call interp_fld([.false.,.false.,.true. ],lo_i,lo_o,hi_o,dli,dlo,wgi,wgo)
+    call interp_fld([.false.,.false.,.false.],lo_i,lo_o,hi_o,dli,dlo,vofi,vofo)
+    call interp_fld([.false.,.false.,.false.],lo_i,lo_o,hi_o,dli,dlo,tmpi,tmpo)
+    call interp_fld([.false.,.false.,.false.],lo_i,lo_o,hi_o,dli,dlo,scai,scao)
+
+    
+    
     !
-    call load('w',output_file,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,time,istep)
+    call load('w',output_file,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,&
+    vofo,ugo,vgo,wgo,tmpo,scao,time,istep,dt,pth,dpthdt)
     call MPI_FINALIZE(ierr)
   contains
     subroutine interp_fld(is_staggered,lo_i,lo_o,hi_o,dli,dlo,fldi,fldo)
