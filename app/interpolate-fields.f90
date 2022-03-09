@@ -2,14 +2,14 @@
     use mpi_f08
     use mod_common, only: rp,ierr
     use mod_bound , only: makehalo,updthalo,set_bc
-    use mod_io    , only: load
+    use mod_io    , only: load, load_scalar
     implicit none
     !
     ! input domain parameters
     !
     real(rp), parameter,       dimension(3) :: l     = [0.0016_rp,0.0016_rp,0.0016_rp]
     integer , parameter,       dimension(3) :: ni    = [64,64,64]      !global?
-    integer , parameter,       dimension(3) :: no    = [256,256,256]   !global? 
+    integer , parameter,       dimension(3) :: no    = [128,128,128]   !global? 
     real(rp), parameter,       dimension(3) :: dlo   = l(:)/no(:)
     real(rp), parameter,       dimension(3) :: dli   = l(:)/ni(:)
     !
@@ -69,9 +69,28 @@
 
     ! file names
     !
-    character(len=*), parameter             :: input_file  = 'data/fld_fir.bin', &
-                                               output_file = 'data/fld_o.bin'
-    !
+    character(len=*), parameter             :: input_file_u      = 'data/fldu.bin', &
+                                               output_file_u     = 'data/fldu_o.bin',&
+                                               input_file_v      = 'data/fldv.bin',&
+                                               output_file_v     = 'data/fldv_o.bin',&                                                
+                                               input_file_w      = 'data/fldw.bin',&
+                                               output_file_w     = 'data/fldw_o.bin',&
+                                               input_file_p      = 'data/fldp.bin',&
+                                               output_file_p     = 'data/fldp_o.bin',&
+                                               input_file_vof    = 'data/fldvof.bin',&
+                                               output_file_vof   = 'data/fldvof_o.bin',&
+                                               input_file_ug    = 'data/fldug.bin',&
+                                               output_file_ug    = 'data/fldug_o.bin',&
+                                               input_file_vg    = 'data/fldvg.bin',&
+                                               output_file_vg    = 'data/fldvg_o.bin',&
+                                               input_file_wg    = 'data/fldwg.bin',&
+                                               output_file_wg    = 'data/fldwg_o.bin',&
+                                               input_file_tmp   = 'data/fldtmp.bin',&
+                                               output_file_tmp   = 'data/fldtmp_o.bin',&
+                                               input_file_sca   = 'data/fldsca.bin',&
+                                               output_file_sca   = 'data/fldsca_o.bin',&
+                                               input_file_scalar = 'data/scalar.out',&
+                                               output_file_scalar = 'data/scalar_o.out'
     ! local problem sizes
     !
     integer, dimension(3)                   :: nni,nno,lo_i,hi_i,lo_o,hi_o
@@ -91,7 +110,7 @@
     real(rp), allocatable, dimension(:,:,:) :: uo,vo,wo,po,vofo,ugo,vgo,wgo,tmpo,scao
     real(rp)                                :: time
     integer                                 :: istep
-    real(rp)                                :: dt,pth,dpthdt
+    real(rp)                                :: pth,dpthdt_n,dt
      
     !
     ! other variables
@@ -99,9 +118,9 @@
     integer :: idir
     time = 1._rp
     istep = 0._rp
-    dt   = 0._rp
+    !dt   = 0._rp
     pth  = 0._rp
-    dpthdt = 0._rp
+    dpthdt_n = 0._rp
     !
     ! initialize MPI
     !
@@ -145,6 +164,7 @@
              wgo(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1) , &
              tmpo(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1), &
              scao(0:nni(1)+1,0:nni(2)+1,0:nni(3)+1))
+    
     ! determine neighbors
     !
     call MPI_CART_SHIFT(comm_cart,0,1,nb(0,1),nb(1,1),ierr)
@@ -156,14 +176,47 @@
     ! generate halo datatypes
     !
     do idir=1,3
+
       call makehalo(idir,1,nni,halo(idir))
+    
     end do
     !
     ! read input data
     !
-    call load('r',input_file,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
-            ugi,vgi,wgi,tmpi,scai,time,istep,dt,pth,dpthdt)
+    call load('r',input_file_u,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+   
+    call load('r',input_file_v,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+   
+    call load('r',input_file_w,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+
+    call load('r',input_file_p,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+
+    call load('r',input_file_vof,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+
+    call load('r',input_file_ug,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+
+    call load('r',input_file_vg,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+
+    call load('r',input_file_wg,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+
+    call load('r',input_file_tmp,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+
+    call load('r',input_file_sca,MPI_COMM_WORLD,myid,ni,[1,1,1],lo_i,hi_i,ui,vi,wi,pi,vofi,&
+            ugi,vgi,wgi,tmpi,scai,time,istep,pth,dpthdt_n)
+ 
+    call load_scalar('r',input_file_scalar,myid,pth,dpthdt_n,time,istep)
+   
     if(myid.eq.0) print*, 'Loaded field at time = ', time, 'step = ',istep,'.'
+    !if(myid.eq.0) print*, 'Loaded field at time = ', 'step = ',pth, dpthdt
     !
     ! impose boundary conditions
     !
@@ -283,8 +336,37 @@
     
     
     !
-    call load('w',output_file,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,&
-    vofo,ugo,vgo,wgo,tmpo,scao,time,istep,dt,pth,dpthdt)
+    call load('w',output_file_u,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,&
+    vofo,ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+    
+    call load('w',output_file_v,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_w,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_p,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_vof,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_ug,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_vg,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_wg,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_tmp,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load('w',output_file_sca,MPI_COMM_WORLD,myid,no,[1,1,1],lo_o,hi_o,uo,vo,wo,po,vofo,&
+            ugo,vgo,wgo,tmpo,scao,time,istep,pth,dpthdt_n)
+
+    call load_scalar('w',output_file_scalar,myid,pth,dpthdt_n,time,istep)
     call MPI_FINALIZE(ierr)
   contains
     subroutine interp_fld(is_staggered,lo_i,lo_o,hi_o,dli,dlo,fldi,fldo)
